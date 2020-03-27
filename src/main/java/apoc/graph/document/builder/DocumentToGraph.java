@@ -264,6 +264,14 @@ public class DocumentToGraph {
         return coll;
     }
 
+    public VirtualGraph create(Object documentObj, Node node, String relationshipType) {
+        Collection<Map<String, Object>> coll = getDocumentCollection(documentObj);
+        Map<Set<String>, Set<Node>> nodes = new LinkedHashMap<>();
+        Set<Relationship> relationships = new LinkedHashSet<>();
+        coll.forEach(map -> fromDocument(map, node, relationshipType, nodes, relationships, JSON_ROOT));
+        return new VirtualGraph("Graph", nodes.values().stream().flatMap(Set::stream).collect(Collectors.toCollection(LinkedHashSet::new)), relationships, Collections.emptyMap());
+    }
+
     public VirtualGraph create(Object documentObj) {
         Collection<Map<String, Object>> coll = getDocumentCollection(documentObj);
         Map<Set<String>, Set<Node>> nodes = new LinkedHashMap<>();
