@@ -14,6 +14,7 @@ import org.neo4j.graphdb.Path;
 import org.neo4j.graphdb.QueryExecutionException;
 import org.neo4j.graphdb.Result;
 import org.neo4j.graphdb.Transaction;
+import org.neo4j.internal.helpers.collection.Iterables;
 import org.neo4j.internal.helpers.collection.Iterators;
 import org.neo4j.internal.helpers.collection.Pair;
 import org.neo4j.internal.kernel.api.exceptions.ProcedureException;
@@ -152,6 +153,54 @@ public class CypherProceduresHandler implements AvailabilityListener {
         return descriptors.stream();
     }
 
+    public Stream<CypherProcedures.CustomProcedureInfo> list() {
+        return readSignatures().map( descriptor -> {
+            if (descriptor instanceof CypherProceduresHandler.ProcedureDescriptor) {
+                CypherProceduresHandler.ProcedureDescriptor procedureDescriptor = (CypherProceduresHandler.ProcedureDescriptor) descriptor;
+                ProcedureSignature signature = procedureDescriptor.getSignature();
+                return new CypherProcedures.CustomProcedureInfo(
+                        PROCEDURE,
+                        signature.name().name(),
+                        signature.description().orElse(null),
+                        signature.mode().toString().toLowerCase(),
+                        procedureDescriptor.getStatement(),
+                        convertInputSignature(signature.inputSignature()),
+                        Iterables.asList(Iterables.map(f -> Arrays.asList(f.name(), prettyPrintType(f.neo4jType())), signature.outputSignature())),
+                        null);
+            } else {
+                CypherProceduresHandler.UserFunctionDescriptor userFunctionDescriptor = (CypherProceduresHandler.UserFunctionDescriptor) descriptor;
+                UserFunctionSignature signature = userFunctionDescriptor.getSignature();
+                return new CypherProcedures.CustomProcedureInfo(
+                        FUNCTION,
+                        signature.name().name(),
+                        signature.description().orElse(null),
+                        null,
+                        userFunctionDescriptor.getStatement(),
+                        convertInputSignature(signature.inputSignature()),
+                        prettyPrintType(signature.outputType()),
+                        userFunctionDescriptor.isForceSingle());
+            }
+        });
+    }
+
+    private List<List<String>> convertInputSignature(List<FieldSignature> signatures) {
+        return Iterables.asList(Iterables.map(f -> {
+            List<String> list = new ArrayList<>(3);
+            list.add(f.name());
+            list.add(prettyPrintType(f.neo4jType()));
+            f.defaultValue().ifPresent(v -> list.add(v.value().toString()));
+            return list;
+        }, signatures));
+    }
+
+    private String prettyPrintType(Neo4jTypes.AnyType type) {
+        String s = type.toString().toLowerCase();
+        if (s.endsWith("?")) {
+            s = s.substring(0, s.length()-1);
+        }
+        return s;
+    }
+
     private ProcedureDescriptor procedureDescriptor(Node node) {
         String statement = (String) node.getProperty(SystemPropertyKeys.statement.name());
 
@@ -243,7 +292,10 @@ public class CypherProceduresHandler implements AvailabilityListener {
                     Pair.of(SystemPropertyKeys.name.name(), signature.name().name())
             );
 
-            node.setProperty(SystemPropertyKeys.description.name(), signature.description().orElse(null));
+            if (signature.description().isPresent()) {
+                node.setProperty(SystemPropertyKeys.description.name(), signature.description().get());
+            }
+
             node.setProperty(SystemPropertyKeys.statement.name(), statement);
             node.setProperty(SystemPropertyKeys.inputs.name(), serializeSignatures(signature.inputSignature()));
             node.setProperty(SystemPropertyKeys.output.name(), signature.outputType().toString());
@@ -261,7 +313,11 @@ public class CypherProceduresHandler implements AvailabilityListener {
                     Pair.of(SystemPropertyKeys.database.name(), api.databaseName()),
                     Pair.of(SystemPropertyKeys.name.name(), signature.name().name())
             );
-            node.setProperty(SystemPropertyKeys.description.name(), signature.description().orElse(null));
+
+            if (signature.description().isPresent()) {
+                node.setProperty(SystemPropertyKeys.description.name(), signature.description().get());
+            }
+
             node.setProperty(SystemPropertyKeys.statement.name(), statement);
             node.setProperty(SystemPropertyKeys.inputs.name(), serializeSignatures(signature.inputSignature()));
             node.setProperty(SystemPropertyKeys.outputs.name(), serializeSignatures(signature.outputSignature()));
